@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Овечка и волк</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #4eac94;
+            overflow: hidden;       /*Выключаем прокрутку */
+        }
+        canvas {
+            border: 1px solid black;
+        }
+        .player_area {
+            color: rgb(0, 185, 0);
+            background-color: rgb(0, 185, 0); /* Добавлено зелёный фон */
+            justify-content: center;
+
+        }
+        .button_level {
+            text-align:center;
+            font-size: 1.1em;
+            padding: 1.5em;
+            text-align: center;
+            width: 100%;
+            margin: 3px 0px; /* внешний отступ верх-низ и право-лево*/
+            border-radius: 15px;
+            background-color: aquamarine
+
+        }
+        .button_control {
+            background-color: aquamarine;
+            text-align:center;
+            font-size: 1.1em;
+            padding: 1.5em;
+        }
+        .div_menu {
+            display: flex;
+            justify-content: center;
+            flex-direction: column; /* элементы друг под другом */
+            gap: 10px;
+            margin-bottom: 20px;
+            position: absolute;
+            z-index: 2;
+            width: 100%;
+        }
+/* Адаптация под планшеты */
+@media (max-width: 1024px) {
+    #gameCanvas {
+        width: 700px;
+        height: 500px;
+    }
+}
+
+/* Адаптация под смартфоны */
+@media (max-width: 768px) {
+    #gameCanvas {
+        width: 100%;
+        height: auto;
+    }
+}
+
+/* Дополнительные элементы управления */
+.controls {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    
+    @media (max-width: 768px) {
+        flex-direction: column;
+    }
+}
+
+    </style>
+</head>
+<body>
+<div style="position: relative;"> <!-- Делаем слои-->
+    <h1 style="text-align: center;">Овечка и Волк</h1>
+    <!--Блок, который будет исчезать при игре, менюшка-->
+    <div id="levels" width="800" height="800" class="div_menu">
+        <div>
+            <button class="button_level" onclick="startGame('easy')">Легкий уровень</button>
+            <button class="button_level" onclick="startGame('medium')">Средний уровень</button>
+            <button class="button_level" onclick="startGame('hard')">Сложный уровень</button>
+        </div>
+        <div> 
+            <i id="score" style="font-size: 30px;"></i> 
+        </div>
+    </div>
+    <canvas id="gameCanvas" width="800" height="800"  class="player_area"></canvas>
+    <div id="controls_btn" style="
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+    ">
+        <div> 
+            <button class="button_control" onclick="game_convert('w')">↑</button>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button class="button_control" onclick="game_convert('a')">←</button>
+            <button id="btn_pause"class="button_control" onclick="game_pause()">| |</button>
+            <button class="button_control" onclick="game_convert('d')">→</button>
+        </div>
+        <div>
+            <button class="button_control" onclick="game_convert('s')">↓</button>
+        </div>
+    </div>
+</div>
+
+<script>
+
+// VK Bridge. 
+import bridge from '@vkontakte/vk-bridge';
+
+// Отправляет событие инициализации нативному клиенту
+bridge.send("VKWebAppInit");
+
+
+function getDeviceType() {  // определяем тип устройства
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isMobile = /mobile|iphone|ipad|ipod|android|blackberry|mini|windows\sce|palm/i.test(userAgent);
+    
+    if (isMobile) { return "mobile";} 
+    else {return "desktop";}
+};
+if(getDeviceType() == "desktop"){
+    document.getElementById("controls_btn").style.display='none';;
+}
+
+
+
+// Настройки игры
+const WIDTH = 800;
+const HEIGHT = 800;
+let FPS = 60;
+let gameRun = false;
+let pause = false
+let score = 0;
+let speed = 3;
+let dx = 4;
+let dy = 4;
+
+let x_speed = 0;
+let y_speed = 0;
+
+// Цвета
+const WHITE = "#FFFFFF";
+const BLUE = "#0000FF";
+const GREEN = "#00FF00";
+
+// Следим за состоянием клавиш
+let keyStates = {};
+
+document.addEventListener("keydown", function(event) {
+    keyStates[event.code] = true;
+});
+
+document.addEventListener("keyup", function(event) {
+    delete keyStates[event.code];
+});
+
+
+// Класс игрока теперь обрабатывает постоянное движение
+class Player {
+    constructor() {
+        this.img = new Image();
+        this.img.src = "sheep.png";
+
+        console.log("Игровой персонаж загружен.");
+        
+    };
+    restart() {
+        this.width = 116;
+        this.height = 135;
+        this.x = WIDTH / 2;
+        this.y = HEIGHT / 2;
+        this.f_speed = speed;
+
+    }
+    
+    draw(ctx) {
+        ctx.drawImage(this.img, this.x, this.y);
+    }
+    
+    update() {
+         
+
+        this.x -= x_speed; 
+        this.y -= y_speed;
+        // Ограничение движения в пределах холста
+        this.x = Math.max(0, Math.min(WIDTH - this.width, this.x));
+        this.y = Math.max(0, Math.min(HEIGHT - this.height, this.y));
+        
+    }
+};
+
+class Enemy {
+    constructor() {
+        this.img = new Image();
+        this.img.src = "wolf.png";
+        this.width = 111;
+        this.height = 150;
+        
+        console.log("Противник загружен.");
+    };
+    restart(){
+        this.x = 0;
+        this.y = HEIGHT / 2;
+    };
+    move() {
+        this.x += dx;
+        this.y += dy;
+        
+        if (this.x <= 0 || this.x >= WIDTH - this.width) dx *= -1;
+        if (this.y <= 0 || this.y >= HEIGHT - this.height) dy *= -1;
+    }
+    
+    draw(ctx) {
+        ctx.drawImage(this.img, this.x, this.y);
+    }
+}
+
+class Eat {
+    constructor() {
+        this.img = new Image();
+        this.img.src = "apple.png";
+        this.width = 25;  // вместо size
+        this.height = 25; // вместо size
+        this.x = Math.random() * (WIDTH - this.width);
+        this.y = Math.random() * (HEIGHT - this.height);
+        console.log("яблоко готово");
+    };
+    
+    new_place(){
+        this.x = Math.random() * (WIDTH - this.width);
+        this.y = Math.random() * (HEIGHT - this.height);
+    };
+    draw(ctx) {
+        ctx.drawImage(this.img, this.x, this.y);
+    };
+};
+
+// Контекст рисования
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+elem_level = document.getElementById("levels");   // кнопки с уровнями
+elem_score = document.getElementById("score");   // вывод результата
+
+elem_pause = document.getElementById("btn_pause");// кнопка паузы 
+let player = null;
+let enemy = null;
+let food = null;
+let flag = false;
+// создаём персонажей только один раз
+player = new Player();
+enemy = new Enemy();
+food = new Eat();
+// Функции игры
+function game_convert(btn){ // нажатие клавиш управления(не на пк)
+    // нажатие клавиш
+    if(btn == "w"){
+        y_speed = speed
+    };
+    if(btn == "a"){
+        x_speed = speed
+    };
+    if(btn == "s"){
+        y_speed = -speed
+    };
+    if(btn == "d"){
+        x_speed = -speed
+    };
+};
+
+function handleKeys() { // обновления состояний клавиш
+    
+    if(keyStates['ArrowUp'] || keyStates['KeyW']) {
+        y_speed = speed;
+    };
+    if(keyStates['ArrowDown'] || keyStates['KeyS']) {
+        y_speed = -speed;
+    };
+    if(keyStates['ArrowLeft'] || keyStates['KeyA']) {
+        x_speed = speed;
+    };
+    if(keyStates['ArrowRight'] || keyStates['KeyD']) {
+        x_speed = -speed;
+    };
+    if(keyStates['Escape'] && flag == false){   //! не работает
+        flag = true
+        game_pause()
+    }
+    else flag = false
+    
+};
+
+function startGame(level) { // начало новой игры
+    gameRun = true;
+    score = 0;
+    speed = level === 'easy' ? 3 : level === 'medium' ? 2 : 1;
+    x_speed = speed;
+    y_speed = speed;
+    dx = 4;
+    dy = 4;
+    player.restart();
+    enemy.restart();
+    food.new_place();
+    openLevels(false);    // убираем выбор уровней
+    requestAnimationFrame(gameLoop);
+};
+
+
+function checkCollision(obj1, obj2) {   // колизия
+
+    // находим центер объектов
+    c_obj_1_x = obj1.x + obj1.width/2
+    c_obj_1_y = obj1.y + obj1.height/2
+
+    c_obj_2_x = obj2.x + obj2.width/2
+
+    c_obj_2_y = obj2.y + obj2.height/2
+
+
+    // Преобразуем координаты второго овала в систему координат первого
+    const dx_col = c_obj_2_x - c_obj_1_x;
+    const dy_col = c_obj_2_y - c_obj_1_y;
+
+    // Проверяем, находится ли центр второго овала внутри первого
+    const a1 = obj1.width ;
+    const b1 = obj1.height ;
+    const a2 = obj2.width ;
+    const b2 = obj2.height ;
+
+    const term1 = (dx_col / a1) ** 2 + (dy_col / b1) ** 2;  // по уравнению эллипса
+    const term2 = (dx_col / a2) ** 2 + (dy_col / b2) ** 2;
+
+    return term1 <= 1 || term2 <= 1;
+};
+
+function gameLoop() {   // Игровой цикл
+    if (!gameRun) return;
+
+    handleKeys(); // Обновляем состояние клавиш
+    if(pause == false){
+    ctx.clearRect(0, 0, WIDTH, HEIGHT); // очищаем холст перед каждым кадром
+
+    // Проверяем столкновения
+    if (checkCollision(player, enemy)) { // игрок столкнулся с противником
+    // alert(`Вы проиграли! Ваш счёт: ${score}`);
+        elem_score.innerHTML =  `Ваш счёт: ${score}`
+        gameRun = false;
+        openLevels(true); // показываем выбор уровней
+        return;
+    };
+    
+    if (checkCollision(player, food)) { // игрок съел еду
+        food.new_place(); // создаем новую еду
+        score++;
+    };
+
+    // Обновление и отрисовка объектов
+    player.update();
+    enemy.move();
+
+    food.draw(ctx);
+    enemy.draw(ctx);
+    player.draw(ctx);
+
+    // Показываем счет
+    ctx.fillStyle = "black";
+    ctx.font = "40px Arial";
+    ctx.fillText(`Ваш счёт: ${score}`, 10, 60);
+    }
+    requestAnimationFrame(gameLoop)
+    
+}
+
+function game_pause(){   // пауза
+    if(pause == false && gameRun == true){ pause = true
+    elem_pause.innerText = "gt"}
+    else{ pause = false;
+    elem_pause.innerText = '| |'
+    }
+    console.log(pause)
+};
+
+function openLevels(a){ // скрытие \ показ меню
+    if(a)elem_level.style.display=''; // включаем
+
+    else elem_level.style.display='none'; //иначе - включаем
+};
+</script>
+</body>
+</html>
